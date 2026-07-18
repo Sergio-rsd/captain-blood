@@ -1,0 +1,10 @@
+[Unit]
+Description=Captain Blood watchdog - LLM-diagnosis on /health failure (one-shot, triggered by captainblood-watchdog.timer)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root
+# /root первым в classpath - см. пояснение в captainblood.service (внешний
+# config.properties должен перебивать версию, упакованную в jar на момент сборки).
+ExecStart=/usr/bin/java -cp /root:/root/CaptainBlood-1.0.0.jar captainblood.watchdog.WatchdogMainKt

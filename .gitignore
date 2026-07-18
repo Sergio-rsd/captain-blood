@@ -1,0 +1,10 @@
+build/
+.gradle/
+.kotlin/
+src/main/resources/config.properties
+*.db
+*.iml
+.idea/
+*.log
+captainblood-watchdog.state.json
+server_test*.log

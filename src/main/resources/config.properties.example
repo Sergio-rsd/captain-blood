@@ -1,0 +1,13 @@
+API_KEY=<openrouter_api_key>
+BASE_URL=https://openrouter.ai/api/v1
+
+PRIVATE_LLM_LOGIN=<basic_auth_login>
+PRIVATE_LLM_PASSWORD=<basic_auth_password>
+SHOW_SOURCES_IN_UI=false
+
+WATCHDOG_MODEL=deepseek/deepseek-v4-flash РАБОЧАЯ
+WATCHDOG_HEALTH_URL=http://localhost:8080/health
+
+VPS_HOST=<ip_or_host>
+VPS_SSH_KEY_PATH=<path_to_private_key>
+VPS_REMOTE_DB_PATH=/root/adventures_sea.db

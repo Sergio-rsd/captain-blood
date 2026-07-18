@@ -1,0 +1,20 @@
+[Unit]
+Description=Captain Blood - private LLM chat service (sea-adventures RAG bot)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+# /root идёт ПЕРЕД jar в classpath: config.properties, реально лежащий в /root, должен
+# перебивать любую версию, случайно упакованную внутрь jar на момент сборки (Gradle
+# бандлит src/main/resources/config.properties в jar, в отличие от старой kotlinc-сборки).
+# С флагом -jar внешний classpath вообще не читался бы - только это и было бы видно.
+ExecStart=/usr/bin/java -cp /root:/root/CaptainBlood-1.0.0.jar captainblood.MainKt --server
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/captainblood.log
+StandardError=append:/root/captainblood.log
+
+[Install]
+WantedBy=multi-user.target
