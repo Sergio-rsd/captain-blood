@@ -27,7 +27,7 @@ enum class EmbedTask(val prefix: String) {
  */
 class EmbeddingClient(
     private val ollamaUrl: String = "http://localhost:11434",
-    private val model: String = "nomic-embed-text"
+    private val model: String = "bge-m3"
 ) {
     companion object {
         /**

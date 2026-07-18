@@ -58,6 +58,17 @@ watchdog не сможет вызвать облачную LLM.
 
 ## 4. Установка systemd-юнитов
 
+**Только при первом деплое (переход со старой screen-версии)**: старая `screen`-сессия
+`llm-service` держит порт 8080 — если её не остановить, новый `captainblood.service`
+будет падать в рестарт-петлю каждые 5с с ошибкой `Address already in use` (живая
+находка 2026-07-18). Проверить и убить:
+
+```bash
+ssh -i ~/.ssh/aeza_vps root@31.97.125.243 "screen -ls; screen -S llm-service -X quit"
+```
+
+Дальше — сама установка юнитов:
+
 ```bash
 ssh -i ~/.ssh/aeza_vps root@31.97.125.243 "
 systemctl daemon-reload

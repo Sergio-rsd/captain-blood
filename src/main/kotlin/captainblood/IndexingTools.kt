@@ -202,3 +202,31 @@ internal fun indexDocument(path: String, index: DocumentIndex, embClient: Embedd
     println()
     println("  Готово: «$source» добавлен в базу (всего чанков: ${index.count()})")
 }
+
+/**
+ * Команда `!reembed-all` — пересчитывает эмбеддинги ВСЕХ чанков в базе текущей моделью
+ * [EmbeddingClient] (текст чанков и вся остальная метаинформация не трогаются, только
+ * вектор). Нужна при смене embedding-модели — старые векторы из другой модели живут в
+ * другом векторном пространстве, косинусное сходство с новыми query-векторами для них
+ * бессмысленно.
+ *
+ * @param index     открытый индекс базы
+ * @param embClient клиент эмбеддингов — уже сконфигурирован на нужную (новую) модель
+ */
+internal fun reembedAll(index: DocumentIndex, embClient: EmbeddingClient) {
+    val chunks = index.allChunks()
+    println("  Пересчитываю эмбеддинги для ${chunks.size} чанков...")
+    var failed = 0
+    chunks.forEachIndexed { i, chunk ->
+        try {
+            index.save(chunk.copy(embedding = embClient.embed(chunk.text, EmbedTask.DOCUMENT)))
+        } catch (e: Exception) {
+            failed++
+            System.err.println("\n  [Reembed] ⚠ чанк ${chunk.chunkId} пропущен (${e.message})")
+        }
+        print("\r  Эмбеддинги: ${i + 1}/${chunks.size}")
+    }
+    println()
+    val failedNote = if (failed > 0) " (не удалось: $failed)" else ""
+    println("  Готово: пересчитано ${chunks.size - failed} чанков$failedNote.")
+}

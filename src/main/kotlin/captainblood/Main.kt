@@ -146,8 +146,12 @@ private val VPS_ANSWER_SYSTEM_BASE = """
 Правила:
 - Отвечай простыми словами, живо и с азартом старого морехода, но без выдумок.
 - Опирайся на факты из приведённого контекста, если он отвечает на вопрос; если в
-  контексте ответа нет, но ты уверен в факте из общих знаний — отвечай сам.
-- Если не уверен в факте или цифре — честно скажи "точно не знаю", не выдумывай.
+  контексте ответа нет, можешь добавить ТОЛЬКО широко известный общий факт, в котором
+  точно уверен (например, как устроен компас) — но НИКОГДА не придумывай конкретные
+  имена людей, названия кораблей, даты или числа, которых нет в контексте, даже если
+  они кажутся правдоподобными: для таких частных деталей общих знаний недостаточно,
+  честно скажи "точно не знаю" вместо того, чтобы называть неточное имя как факт.
+- Если не уверен в факте, имени или цифре — честно скажи "точно не знаю", не выдумывай.
 - Никогда не копируй текст дословно — всегда переформулируй своими словами.
 - Изредка вплетай байки про пиратов, парусники, Карибы и медицину эпохи паруса.
 - Никогда не затрагивай пугающие, жестокие или недетские темы — если вопрос об этом,
@@ -434,8 +438,15 @@ private fun isLifeRelatedQuestion(question: String): Boolean {
  * Генри Морган?" не подтягивал этот файл вообще (раньше он и не мог участвовать в retrieval —
  * был исключён вместе с художественной книгой, см. [VPS_FICTION_MARKER]), и модель без
  * контекста путала реального Моргана с вымышленным капитаном Бладом.
+ *
+ * Переключено на `istorii-o-piraties.md` (2026-07-18): старый `content_PiratstvoKaribskogoMorya.md`
+ * режется fixed-чанками без уважения к смысловым границам — один чанк случайно склеил конец
+ * абзаца про разграбление Картахены в 1697 (реальное событие, но не морганово — Морган умер
+ * в 1688) с началом его биографии в том же куске текста. Модель честно процитировала кривой
+ * контекст и приписала Картахену Моргану. `istorii-o-piraties.md` содержит ту же биографию
+ * без этой путаницы (структурный чанкер уважает границы заголовков).
  */
-private const val VPS_HISTORY_SOURCE = "content_PiratstvoKaribskogoMorya.md"
+private const val VPS_HISTORY_SOURCE = "istorii-o-piraties.md"
 
 private val VPS_HISTORY_KEYWORDS = listOf(
     "морган", "тич", "чёрная борода", "черная борода", "робертс", "чёрный барт",
@@ -447,6 +458,27 @@ private val VPS_HISTORY_KEYWORDS = listOf(
 private fun isHistoryRelatedQuestion(question: String): Boolean {
     val lower = question.lowercase()
     return VPS_HISTORY_KEYWORDS.any { lower.contains(it) }
+}
+
+/**
+ * Файл про женщин-пираток — тот же устоявшийся паттерн (см. [VPS_LIFE_SOURCE]/
+ * [VPS_HISTORY_SOURCE]): новый тематический файл теряется в общем retrieval-пуле без
+ * явного keyword-gate. Живой баг: "расскажи про пиратов женщин" без гейта попадал в общий
+ * пул (VPS_SEARCH_POOL=25, top-3) и вытягивал `content_SokrovishaIKlady.md` вместо раздела
+ * "Самые пиратские женщины" из `istorii-o-piraties.md` — модель на слабом контексте
+ * выдумала несуществующее имя пиратки вместо реальных Бонни/Рид/Чжэн Ши.
+ */
+private const val VPS_WOMEN_PIRATES_SOURCE = "istorii-o-piraties.md"
+
+private val VPS_WOMEN_PIRATES_KEYWORDS = listOf(
+    "женщин", "пиратк", "бонни", "мэри рид", "мери рид", "чжэн ши", "мадам цзинь",
+    "о'мэлли", "омэлли", "фарелл"
+)
+
+/** Определяет, касается ли вопрос женщин-пираток — см. [VPS_WOMEN_PIRATES_KEYWORDS]. */
+private fun isWomenPiratesRelatedQuestion(question: String): Boolean {
+    val lower = question.lowercase()
+    return VPS_WOMEN_PIRATES_KEYWORDS.any { lower.contains(it) }
 }
 
 /**
@@ -1163,6 +1195,13 @@ private fun answerWithRag(question: String, history: List<ChatTurn>, cfg: VpsGen
             val historyHits = fullPool.filter { it.chunk.source == VPS_HISTORY_SOURCE }.take(VPS_TOPIC_TOP_K)
             val otherHits = fullPool.filter { it.chunk.source != VPS_HISTORY_SOURCE }
             (historyHits + otherHits).take(VPS_TOPIC_TOP_K)
+        } else if (isWomenPiratesRelatedQuestion(question)) {
+            // Тот же приём (см. VPS_WOMEN_PIRATES_KEYWORDS).
+            val fullPool = index.searchHybrid(queryEmbedding, question, topK = VPS_FULL_POOL_SIZE, poolSize = VPS_FULL_POOL_SIZE)
+                .filter { !isFictionSource(it.chunk.source) }
+            val womenHits = fullPool.filter { it.chunk.source == VPS_WOMEN_PIRATES_SOURCE }.take(VPS_TOPIC_TOP_K)
+            val otherHits = fullPool.filter { it.chunk.source != VPS_WOMEN_PIRATES_SOURCE }
+            (womenHits + otherHits).take(VPS_TOPIC_TOP_K)
         } else {
             // Раньше — чистый косинус (VPS_SEARCH_POOL=25 кандидатов); теперь гибрид (BM25 +
             // косинус через RRF, см. DocumentIndex.searchHybrid) — на живых тестах 2026-07-13
@@ -1489,6 +1528,7 @@ private fun vpsPrintCommands() {
     println("  !index-doc <путь>        — индексация документа (txt/md/pdf/docx/doc) + автосинк базы на VPS")
     println("  !index-telegram <путь>   — индексация экспорта Telegram + автосинк базы на VPS")
     println("  !sync-db                 — синхронизировать локальный $VPS_DB_PATH на VPS (без индексации)")
+    println("  !reembed-all              — пересчитать эмбеддинги ВСЕХ чанков текущей моделью + автосинк")
     println("  exit / выход             — завершить")
 }
 
@@ -1540,6 +1580,9 @@ private fun runClientMode(config: Properties?) {
                 }
             }
             input.lowercase() == "!sync-db" -> syncDbToVps(config)
+            input.lowercase() == "!reembed-all" -> {
+                runLocalIndexAndSync(config) { index, embClient -> reembedAll(index, embClient) }
+            }
             else -> sendSingleChat(baseUrl, login, password, input)
         }
     }
