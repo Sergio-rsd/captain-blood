@@ -22,13 +22,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 // =====================================================================
-// Константы (Week 6 День 30 — приватный LLM-сервис на VPS)
+// Константы — приватный LLM-сервис на VPS
 // =====================================================================
 
 /**
- * Отдельный корпус Дня 30 (не тот же, что Week6Day2-4/Дни 27-29) — эрудит-бот
- * "старый морской волк" про море/океан/пиратов для внука друзей, копируется на VPS
- * как есть, без переиндексации там.
+ * Корпус сервиса — эрудит-бот "старый морской волк" про море/океан/пиратов для
+ * мальчиков и девочек 12+, копируется на VPS как есть, без переиндексации там.
  */
 private const val VPS_DB_PATH = "adventures_sea.db"
 
@@ -133,8 +132,8 @@ private const val VPS_RATE_LIMIT_WINDOW_MS = 30_000L
 private const val VPS_STABILITY_DEFAULT_N = 5
 
 /**
- * Персона "старый морской волк" — эрудит-бот про море/океан для внука друзей (12 лет).
- * Короче, чем `CMP_ANSWER_SYSTEM`/`OPT_ANSWER_SYSTEM` Дней 28-29: 1.5b/3b хуже держат длинные
+ * Персона "старый морской волк" — эрудит-бот про море/океан для мальчиков и девочек 12+.
+ * Короче, чем более многословные варианты системного промпта: 1.5b/3b хуже держат длинные
  * многосоставные инструкции, чем 7b. Книга ("Одиссея капитана Блада") НЕ индексируется в
  * контекст (см. [VPS_FICTION_MARKER] в [answerWithRag]) — тизер про сюжет строится на общих
  * знаниях модели о книге, а не на retrieved-тексте, поэтому книга не "вылезает" дословно.
@@ -1086,14 +1085,14 @@ private class PrivateLlmServer(
 }
 
 /**
- * Отвечает на вопрос через упрощённый RAG (без rewrite/rerank Дней 28-29 — каждый лишний
- * вызов модели добавляет реальные секунды на 1 vCPU при КАЖДОМ запросе): эмбеддинг вопроса
- * → поиск по [DocumentIndex] → ответ [VpsGenConfig.model] с retrieved-контекстом.
+ * Отвечает на вопрос через упрощённый RAG (без отдельных стадий rewrite/rerank — каждый
+ * лишний вызов модели добавляет реальные секунды на 1 vCPU при КАЖДОМ запросе): эмбеддинг
+ * вопроса → поиск по [DocumentIndex] → ответ [VpsGenConfig.model] с retrieved-контекстом.
  *
  * `DocumentIndex` открывается заново на каждый вызов (а не держится одним долгоживущим
- * инстансом сервера) — специально, чтобы файл `domain_assistant.db`, обновлённый через
- * `!index-doc`/`!index-telegram` + автосинк ([syncDbToVps]), подхватывался сразу же на
- * следующем запросе, без перезапуска сервиса на VPS.
+ * инстансом сервера) — специально, чтобы файл `adventures_sea.db`, обновлённый вручную и
+ * синхронизированный через [syncDbToVps], подхватывался сразу же на следующем запросе,
+ * без перезапуска сервиса на VPS.
  *
  * @param question вопрос пользователя (уже проверен на пустоту/длину вызывающей стороной)
  * @param history  последние реплики диалога (уже обрезаны до [VPS_HISTORY_MAX_PAIRS] пар
@@ -1343,28 +1342,8 @@ private fun runMaxContextTest(baseUrl: String, login: String, password: String) 
 }
 
 // =====================================================================
-// Локальная индексация + автосинк на VPS
+// Автосинк базы на VPS
 // =====================================================================
-
-/**
- * Прогоняет локальную индексацию (переиспользует [optIndexDocument]/[optIndexTelegramExport]
- * из `Week6Day4OptimizLocLLM.kt` без дублирования логики — там же живёт весь чанкинг/шумовой
- * фильтр) и затем автоматически синхронизирует обновлённый `domain_assistant.db` на VPS —
- * для пользователя это один шаг: залил файл → индексация → «улетело» на VPS.
- *
- * @param config конфигурация с (опциональными) ключами синка на VPS, см. [syncDbToVps]
- * @param action конкретное действие индексации — вызов `optIndexDocument`/`optIndexTelegramExport`
- */
-private fun runLocalIndexAndSync(config: Properties?, action: (DocumentIndex, EmbeddingClient) -> Unit) {
-    val index = DocumentIndex(VPS_DB_PATH)
-    val embClient = EmbeddingClient()
-    try {
-        action(index, embClient)
-    } finally {
-        index.close()
-    }
-    syncDbToVps(config)
-}
 
 /**
  * Копирует локальный `domain_assistant.db` на VPS через `scp`, используя хост/ключ/
@@ -1402,16 +1381,6 @@ private fun syncDbToVps(config: Properties?) {
 // main() и режимы
 // =====================================================================
 
-/**
- * Week 6 День 30 — локальная LLM как приватный сервис.
- *
- * Два режима: `[1]` сервер — поднимает HTTP API поверх локальной Ollama (RAG по
- * `domain_assistant.db`, ограничение доступа по HTTP Basic Auth — логин/пароль, rate
- * limit, ограничение длины запроса) — предназначен для запуска на VPS; `[2]` клиент/админ-REPL — с любой
- * машины проверяет сетевой доступ к сервису, стабильность при нескольких запросах,
- * срабатывание ограничений, а также локально индексирует новые документы/Telegram-экспорты
- * с автосинком базы на VPS.
- */
 /**
  * Точка входа.
  *
@@ -1490,8 +1459,7 @@ private fun runServerMode(config: Properties?, blockOnEnter: Boolean = true) {
     println("Сервис остановлен.")
 }
 
-/** Печатает список
- *  команд REPL с кратким описанием каждой — перед каждым вводом (как в Week6Day4OptimizLocLLM.kt). */
+/** Печатает список команд REPL с кратким описанием каждой — перед каждым вводом. */
 private fun vpsPrintCommands() {
     println("Команды:")
     println("  <текст>                  — одиночный чат-запрос")
@@ -1499,8 +1467,7 @@ private fun vpsPrintCommands() {
     println("  !ratelimit               — проверка rate limit (шлёт запросы сверх лимита)")
     println("  !maxcontext              — проверка ограничения длины запроса (намеренно длинный текст)")
     println("  !sources                 — список источников в базе")
-    println("  !index-doc <путь>        — индексация документа + автосинк базы на VPS")
-    println("  !index-telegram <путь>   — индексация экспорта Telegram + автосинк базы на VPS")
+    println("  !sync-db                 — синхронизировать локальный $VPS_DB_PATH на VPS")
     println("  exit / выход             — завершить")
 }
 
@@ -1541,15 +1508,7 @@ private fun runClientMode(config: Properties?) {
                 val index = DocumentIndex(VPS_DB_PATH)
                 try { optPrintSources(index) } finally { index.close() }
             }
-            input.lowercase().startsWith("!index-doc ") || input.lowercase().startsWith("!index-telegram ") -> {
-                println(
-                    "  Индексация нового сырого контента (документ/Telegram-экспорт) в этой сборке " +
-                        "не перенесена — требует DocumentReader/TelegramChatReader и PDFBox/POI, что " +
-                        "не нужно ни серверу, ни watchdog'у. Обновляйте корпус (adventures_sea.db) " +
-                        "прежним инструментом в aiexperiment и синкайте базу вручную (scp) или через " +
-                        "syncDbToVps ниже."
-                )
-            }
+            input.lowercase() == "!sync-db" -> syncDbToVps(config)
             else -> sendSingleChat(baseUrl, login, password, input)
         }
     }

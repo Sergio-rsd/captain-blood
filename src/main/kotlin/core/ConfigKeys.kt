@@ -11,7 +11,7 @@ object ConfigKeys {
     const val API_KEY = "API_KEY"
     const val BASE_URL = "BASE_URL"
 
-    // Приватный LLM-сервис на VPS (Week 6 День 30)
+    // Приватный LLM-сервис на VPS
     const val PRIVATE_LLM_LOGIN = "PRIVATE_LLM_LOGIN"        // логин для HTTP Basic Auth на /chat
     const val PRIVATE_LLM_PASSWORD = "PRIVATE_LLM_PASSWORD"  // пароль для HTTP Basic Auth на /chat
     const val VPS_HOST = "VPS_HOST"                          // публичный адрес VPS (IP или host:port)
@@ -19,7 +19,7 @@ object ConfigKeys {
     const val VPS_REMOTE_DB_PATH = "VPS_REMOTE_DB_PATH"      // путь к domain_assistant.db на VPS
     const val SHOW_SOURCES_IN_UI = "SHOW_SOURCES_IN_UI"      // "false" — скрыть строку источников в HTML-морде (перед деплоем); по умолчанию true (локальный дебаг)
 
-    // Watchdog с LLM-диагностикой (День 35)
+    // Watchdog с LLM-диагностикой
     const val WATCHDOG_MODEL = "WATCHDOG_MODEL"              // displayName модели из client.LlmClient.AVAILABLE_MODELS для диагностики сбоя
     const val WATCHDOG_HEALTH_URL = "WATCHDOG_HEALTH_URL"    // URL health-эндпоинта сервиса, дефолт http://localhost:8080/health
 
@@ -32,11 +32,11 @@ object ConfigKeys {
     const val MAX_TOKENS_CLAUDE = 1000
     const val INPUT_CONTEXT_TOKEN_LIMIT = 8000
     
-    // Сжатие истории (Week 2 Day 4)
+    // Сжатие истории
     const val COMPRESSION_KEEP_LAST_N = 5      // Сколько последних сообщений хранить «как есть»
     const val COMPRESSION_SUMMARY_EVERY_M = 5   // Батч из M старых сообщений → 1 summary
     
-    // Стратегии контекста (Week 2 Day 5)
+    // Стратегии контекста
     const val SLIDING_WINDOW_HARD_KEEP_N = 8    // Sliding Window Hard: только последние N сообщений
     const val STICKY_FACTS_KEEP_N = 8            // Sticky Facts: facts + последние N сообщений
     

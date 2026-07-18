@@ -2,9 +2,8 @@
 
 Сервис: `captainblood.Main` (HTTP API) + `captainblood.watchdog.WatchdogMain` (LLM-диагностика
 при сбое `/health`). VPS: `31.97.125.243`, SSH: `ssh -i ~/.ssh/aeza_vps root@31.97.125.243`
-(тот же ключ и хост, что использовались для предыдущей версии сервиса в `aiexperiment` —
-см. память `reference_vps_workflow`, живые креды — только в локальном
-`resources/config.properties` и `/root/config.properties` на VPS, здесь не хранятся).
+(живые креды — только в локальном `resources/config.properties` и `/root/config.properties`
+на VPS, здесь не хранятся).
 
 ## Отличие от предыдущей версии
 
@@ -119,6 +118,4 @@ curl -s http://localhost:8080/health   # ожидается снова ok
 ## Безопасность секретов
 
 `config.properties` (локально и на VPS) не коммитится и не переносится в
-документацию/runbook'и — только процедура и то, ГДЕ искать актуальное значение. Тот же
-принцип, что применялся к предыдущей версии сервиса после инцидента с утечкой пароля
-через RAG-индексацию (см. память `project_password_rotation_tuesday` в `aiexperiment`).
+документацию/runbook'и — только процедура и то, ГДЕ искать актуальное значение.

@@ -3,9 +3,8 @@ package captainblood
 import agent.indexing.DocumentIndex
 
 /**
- * Выводит пронумерованный список источников в индексе с количеством чанков по стратегии.
- * Перенесено без изменений из `Week6Day4OptimizLocLLM.kt` проекта `aiexperiment`
- * (использовалось только командой `!sources` клиент/админ-режима).
+ * Выводит пронумерованный список источников в индексе с количеством чанков по стратегии
+ * (используется командой `!sources` клиент/админ-режима).
  */
 internal fun optPrintSources(index: DocumentIndex) {
     val sources = index.listSources()
