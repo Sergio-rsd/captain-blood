@@ -14,6 +14,12 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("org.xerial:sqlite-jdbc:3.45.1.0")
     implementation("org.slf4j:slf4j-nop:2.0.9")
+
+    // Индексация новой информации в разных форматах (!index-doc): pdf/docx/doc
+    implementation("org.apache.pdfbox:pdfbox:2.0.31")
+    implementation("org.apache.poi:poi:5.3.0")
+    implementation("org.apache.poi:poi-ooxml:5.3.0")
+    implementation("org.apache.poi:poi-scratchpad:5.3.0")
 }
 
 kotlin {

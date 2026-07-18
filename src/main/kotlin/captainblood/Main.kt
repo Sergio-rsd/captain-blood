@@ -1342,8 +1342,27 @@ private fun runMaxContextTest(baseUrl: String, login: String, password: String) 
 }
 
 // =====================================================================
-// Автосинк базы на VPS
+// Локальная индексация + автосинк на VPS
 // =====================================================================
+
+/**
+ * Прогоняет локальную индексацию ([indexDocument]/[indexTelegramExport] из
+ * `IndexingTools.kt`) и затем автоматически синхронизирует обновлённый `adventures_sea.db`
+ * на VPS — для пользователя это один шаг: залил файл → индексация → «улетело» на VPS.
+ *
+ * @param config конфигурация с (опциональными) ключами синка на VPS, см. [syncDbToVps]
+ * @param action конкретное действие индексации — вызов `indexDocument`/`indexTelegramExport`
+ */
+private fun runLocalIndexAndSync(config: Properties?, action: (DocumentIndex, EmbeddingClient) -> Unit) {
+    val index = DocumentIndex(VPS_DB_PATH)
+    val embClient = EmbeddingClient()
+    try {
+        action(index, embClient)
+    } finally {
+        index.close()
+    }
+    syncDbToVps(config)
+}
 
 /**
  * Копирует локальный `domain_assistant.db` на VPS через `scp`, используя хост/ключ/
@@ -1467,7 +1486,9 @@ private fun vpsPrintCommands() {
     println("  !ratelimit               — проверка rate limit (шлёт запросы сверх лимита)")
     println("  !maxcontext              — проверка ограничения длины запроса (намеренно длинный текст)")
     println("  !sources                 — список источников в базе")
-    println("  !sync-db                 — синхронизировать локальный $VPS_DB_PATH на VPS")
+    println("  !index-doc <путь>        — индексация документа (txt/md/pdf/docx/doc) + автосинк базы на VPS")
+    println("  !index-telegram <путь>   — индексация экспорта Telegram + автосинк базы на VPS")
+    println("  !sync-db                 — синхронизировать локальный $VPS_DB_PATH на VPS (без индексации)")
     println("  exit / выход             — завершить")
 }
 
@@ -1507,6 +1528,16 @@ private fun runClientMode(config: Properties?) {
             input.lowercase() == "!sources" -> {
                 val index = DocumentIndex(VPS_DB_PATH)
                 try { optPrintSources(index) } finally { index.close() }
+            }
+            input.lowercase().startsWith("!index-doc ") -> {
+                val path = input.substring("!index-doc ".length).trim()
+                runLocalIndexAndSync(config) { index, embClient -> indexDocument(path, index, embClient) }
+            }
+            input.lowercase().startsWith("!index-telegram ") -> {
+                val path = input.substring("!index-telegram ".length).trim()
+                runLocalIndexAndSync(config) { index, embClient ->
+                    indexTelegramExport(path, index, embClient, VPS_LOCAL_INDEX_JUDGE_MODEL, VPS_NOISE_THRESHOLD)
+                }
             }
             input.lowercase() == "!sync-db" -> syncDbToVps(config)
             else -> sendSingleChat(baseUrl, login, password, input)
