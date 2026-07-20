@@ -1,0 +1,70 @@
+name: AI PR Review (DevAssistant engine)
+
+# Автоматическое ревью PR через DevAssistant (движок ревью, отдельный репозиторий).
+# Перед первым запуском заведите в Settings → Secrets and variables → Actions этого
+# репозитория:
+# - LLM_API_KEY  (Secret)   — ключ облачного LLM-бэкенда.
+# - LLM_BASE_URL (Secret)   — например, https://routerai.ru/api/v1
+# - LLM_MODEL    (Variable) — apiName модели из client.LlmClient.AVAILABLE_MODELS в
+#                              DevAssistant; не задана — используется дефолт движка.
+#
+# Настройки самого ревью (какие файлы индексировать, системный промпт) берутся из
+# встроенных дефолтов движка (README*.md,CLAUDE.md,docs/**/*.md,src/**/*.kt) — при
+# необходимости переопределить, добавить devassistant-review.properties в корень
+# этого репозитория (см. templates/devassistant-review.properties.example в
+# DevAssistant).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout целевого репозитория
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout DevAssistant (движок)
+        uses: actions/checkout@v4
+        with:
+          repository: Sergio-rsd/DevAssistant
+          path: devassistant-engine
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Write config.properties движка
+        run: |
+          cat > devassistant-engine/src/main/resources/config.properties << 'EOF'
+          LLM_BACKEND=cloud
+          BASE_URL=${{ secrets.LLM_BASE_URL }}
+          API_KEY=${{ secrets.LLM_API_KEY }}
+          MODEL=${{ vars.LLM_MODEL || 'deepseek/deepseek-v4-flash' }}
+          EOF
+
+      - name: Compute PR diff
+        run: |
+          git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} > diff.txt
+
+      - name: Run AI review
+        run: |
+          chmod +x gradlew
+          ./gradlew runReview --args="--repo=${{ github.workspace }} --diff=${{ github.workspace }}/diff.txt --out=${{ github.workspace }}/review.md"
+        working-directory: devassistant-engine
+
+      - name: Post review as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          { echo "## 🤖 AI-ревью кода (автоматически, DevAssistant)"; echo; cat review.md; } > review_final.md
+          gh pr comment ${{ github.event.pull_request.number }} --body-file review_final.md --repo ${{ github.repository }}
