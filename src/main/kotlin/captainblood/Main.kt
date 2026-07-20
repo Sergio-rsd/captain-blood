@@ -43,8 +43,11 @@ private const val VPS_DB_PATH = "adventures_sea.db"
  */
 private const val VPS_MODEL = "qwen2.5:7b-instruct"
 
-/** Единственный адрес сервиса — другого пока нет, поэтому не спрашиваем в клиент-режиме. */
-private const val VPS_CLIENT_BASE_URL = "http://31.97.125.243:8080"
+/**
+ * Дефолт для клиент-режима, если [core.ConfigKeys.VPS_CLIENT_BASE_URL] не задан в
+ * `config.properties` — реальный адрес VPS в исходник не зашивается (см. README/CLAUDE.md).
+ */
+private const val DEFAULT_VPS_CLIENT_BASE_URL = "http://localhost:8080"
 
 /**
  * Модель LLM-судьи шума при `!index-telegram` — используется ТОЛЬКО локально (индексация
@@ -1540,7 +1543,11 @@ private fun vpsPrintCommands() {
 
 /** Режим `[2]` — клиент/админ-REPL: чат, проверочные команды и локальная индексация с автосинком. */
 private fun runClientMode(config: Properties?) {
-    val baseUrl = VPS_CLIENT_BASE_URL
+    val baseUrl = config?.getProperty(ConfigKeys.VPS_CLIENT_BASE_URL)?.takeIf { it.isNotBlank() }
+        ?: run {
+            print("${ConfigKeys.VPS_CLIENT_BASE_URL} не найден в config.properties, введите адрес сервиса [$DEFAULT_VPS_CLIENT_BASE_URL]: ")
+            readlnWithFlush()?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_VPS_CLIENT_BASE_URL
+        }
     println("Адрес сервиса: $baseUrl")
 
     val login = config?.getProperty(ConfigKeys.PRIVATE_LLM_LOGIN)?.takeIf { it.isNotBlank() }

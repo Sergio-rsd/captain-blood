@@ -9,5 +9,6 @@ WATCHDOG_MODEL=deepseek/deepseek-v4-flash РАБОЧАЯ
 WATCHDOG_HEALTH_URL=http://localhost:8080/health
 
 VPS_HOST=<ip_or_host>
+VPS_CLIENT_BASE_URL=http://<ip_or_host>:8080
 VPS_SSH_KEY_PATH=<path_to_private_key>
 VPS_REMOTE_DB_PATH=/root/adventures_sea.db
