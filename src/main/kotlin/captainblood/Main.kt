@@ -32,14 +32,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 private const val VPS_DB_PATH = "adventures_sea.db"
 
 /**
- * Модель ответа сервиса — после апгрейда VPS (2 vCPU / 8GB RAM, 2026-07-13) переключено
- * с `3b` на `7b`: живой A/B на VPS (2 запроса, простой + составной вопрос) показал рост
- * времени ответа в ~2.8-3× (12с→34с, 18с→56с — CPU как было единственным узким местом, так
- * и осталось, объём вычислений на токен у 7b просто больше), но `7b` живьём исправляет
- * документированный баг Дня 30: `3b` на составном вопросе про несколько акул перепутала
- * факты между сущностями (спокойную характеристику акулы-няньки скопировала на белую акулу),
- * `7b` развела три сущности верно. Решение пользователя — качество важнее скорости, раз
- * задержка и так привычна.
+ * Модель ответа сервиса — 2026-07-21, финальное решение дня: `7b`, ПОСЛЕ короткого
+ * возврата к `3b` в течение того же дня. Хронология:
+ * 1. `3b` переключена ради скорости, добавлен [VPS_SHARK_ENTITY_ANCHOR_RULE] —
+ *    промпт-фикс закрыл конкретный adversarial-баг (путаница атрибутов между видами
+ *    акул), протестировано чисто.
+ * 2. На живом трафике (не в тестах) вскрылась БОЛЕЕ ШИРОКАЯ проблема: `3b`
+ *    ненадёжно следует правилу "не выдумывай, если не знаешь" за пределами того,
+ *    что покрывал фикс — придумала несуществующий коралл ("Белый Барсик", затем
+ *    "Акапулько-коралл" даже ПОСЛЕ усиления правила explicit-списком видов), и
+ *    независимо перепутала гальюн (носовой корабельный туалет) с надстройкой на
+ *    корме, "украшенной оружием". Усиление промпта не помогло — `7b` на тех же
+ *    контекстах отвечает корректно ("точно не знаю" вместо выдумки).
+ * 3. Вывод: промпт-фиксы лечат ТОЧЕЧНЫЕ баги (см. shark anchor rule — тот
+ *    сработал), но не компенсируют общий разрыв в надёжности следования
+ *    инструкциям между 3B и 7B. Решение пользователя — вернуться на `7b`,
+ *    смириться со скоростью (~3 мин/ответ на этой VPS), и компенсировать
+ *    ощущение задержки в UI, а не гнаться за более быстрой, но менее надёжной
+ *    моделью. См. [VPS_EXPECTED_ANSWER_SECONDS] (обратный отсчёт в `vpsIndexHtml`)
+ *    и полную сравнительную таблицу 9 кандидатов в `docs/ModelComparison.md`.
  */
 private const val VPS_MODEL = "qwen2.5:7b-instruct"
 
@@ -104,6 +115,14 @@ private const val VPS_MAX_MESSAGE_CHARS = 1000
 private const val VPS_HISTORY_MAX_PAIRS = 6
 
 /**
+ * Ожидаемое время ответа [VPS_MODEL] в секундах — используется ТОЛЬКО для обратного
+ * отсчёта в UI (`vpsIndexHtml`), не влияет на генерацию. Подбирается под конкретную
+ * модель по факту (см. `docs/ModelComparison.md`); при смене [VPS_MODEL] — поправить
+ * и это значение. Для `qwen2.5:7b-instruct` (2026-07-21) — среднее ~3 минуты на VPS.
+ */
+private const val VPS_EXPECTED_ANSWER_SECONDS = 180
+
+/**
  * Метка в имени источника, по которой файл художественной книги про капитана Блада
  * сознательно исключается из основного retrieval-пула [answerWithRag] (кроме
  * [bookExcerptHint]), чтобы книга не "вылезала" дословно и не путалась с фактическим
@@ -151,9 +170,15 @@ private val VPS_ANSWER_SYSTEM_BASE = """
 - Опирайся на факты из приведённого контекста, если он отвечает на вопрос; если в
   контексте ответа нет, можешь добавить ТОЛЬКО широко известный общий факт, в котором
   точно уверен (например, как устроен компас) — но НИКОГДА не придумывай конкретные
-  имена людей, названия кораблей, даты или числа, которых нет в контексте, даже если
-  они кажутся правдоподобными: для таких частных деталей общих знаний недостаточно,
-  честно скажи "точно не знаю" вместо того, чтобы называть неточное имя как факт.
+  имена людей, названия кораблей, ВИДОВ ЖИВОТНЫХ ИЛИ РАСТЕНИЙ (в том числе кораллов,
+  рыб), даты или числа, которых нет в контексте, даже если они кажутся правдоподобными
+  и складно звучат: для таких частных деталей общих знаний недостаточно, честно скажи
+  "точно не знаю" вместо того, чтобы называть неточное имя как факт.
+- Если вопрос просит назвать ОДИН конкретный/самый лучший/самый красивый пример
+  (вид, экземпляр), а контекст даёт только общую информацию по теме без названия
+  конкретного примера — отвечай общей информацией из контекста и честно скажи, что
+  какой именно вид самый-самый, тебе доподлинно неизвестно. Не изобретай название,
+  чтобы дать вопросу желаемую форму ответа.
 - Если не уверен в факте, имени или цифре — честно скажи "точно не знаю", не выдумывай.
 - Никогда не копируй текст дословно — всегда переформулируй своими словами.
 - Изредка вплетай байки про пиратов, парусники, Карибы и медицину эпохи паруса.
@@ -398,6 +423,28 @@ private fun isSharkRelatedQuestion(question: String): Boolean {
 }
 
 /**
+ * Анти-конфляционное правило для составных вопросов про несколько видов акул сразу
+ * (например, "расскажи про самых опасных акул" — в контекст попадает сразу несколько
+ * видов). Найдено на живом тесте 2026-07-21 при сравнении `3b` и `7b`: `3b` приписала
+ * характеристику "любит прохладные и умеренные воды" (в контексте это факт про белую
+ * акулу) акуле-быку — тот же класс ошибки, что и старый баг Дня 30 (акула-нянька/белая
+ * акула), просто другая конкретная пара сущностей. В отличие от [VPS_SHARK_SOURCES]
+ * (чинит RETRIEVAL — чтобы нужный чанк вообще попал в контекст) это правило чинит
+ * SYNTHESIS — модель уже видит нужный факт, но неверно определяет, к какой сущности
+ * он относится, пересказывая своими словами. Добавляется всегда при вопросе про акул
+ * (не только на составные), потому что почти любой такой вопрос подтягивает контекст
+ * сразу с несколькими видами (см. [VPS_TOPIC_TOP_K] — топ-5 чанков про акул).
+ */
+private val VPS_SHARK_ENTITY_ANCHOR_RULE = """
+В контексте может быть несколько РАЗНЫХ видов акул сразу. Каждый факт (характер,
+поведение, любимая температура/тип воды, размер, где встречается) — держи строго
+привязанным к тому виду, о котором он написан в контексте. Перед тем как что-то
+сказать про конкретный вид, перепроверь: этот факт в контексте относится именно к
+нему, а не к соседнему виду, упомянутому рядом. Не переноси и не обобщай
+характеристику одного вида на другой, даже если они в одном списке.
+""".trimIndent()
+
+/**
  * Файлы про оружие пиратов — та же природа проблемы: найдено на живом тесте 2026-07-12,
  * что "чем вооружены пираты?" вообще не подтягивал файл (retrieval нашёл байки и
  * безопасность вместо оружия), и модель на пустом контексте выдумала анахронизмы
@@ -625,12 +672,15 @@ body {
 .entry.captain .bubble { background: color-mix(in srgb, var(--accent-strong) 9%, var(--bg-panel)); border-left: 3px solid var(--accent-strong); }
 .entry.kid .bubble { background: color-mix(in srgb, var(--coral) 12%, var(--bg-panel)); border-right: 3px solid var(--coral); text-align: left; }
 .sources { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: 10px; color: var(--text-dim); letter-spacing: .02em; padding-left: 15px; }
-.typing { align-self: flex-start; display: flex; gap: 5px; padding: 12px 15px; align-items: center; }
-.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-strong); opacity: .55; animation: bob 1.1s ease-in-out infinite; }
-.typing span:nth-child(2) { animation-delay: .15s; }
-.typing span:nth-child(3) { animation-delay: .3s; }
+.typing { align-self: flex-start; display: flex; gap: 10px; padding: 12px 15px; align-items: center; }
+.typing-dots { display: flex; gap: 5px; flex: none; }
+.typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-strong); opacity: .55; animation: bob 1.1s ease-in-out infinite; }
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .3s; }
 @keyframes bob { 0%, 100% { transform: translateY(0); opacity: .35; } 50% { transform: translateY(-4px); opacity: .9; } }
-@media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .typing-dots span { animation: none; opacity: .6; } }
+.typing-label { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: 11px; color: var(--text-dim); letter-spacing: .02em; white-space: nowrap; }
+.typing-label .num { color: var(--accent-strong); font-weight: 700; }
 .write { background: var(--bg-panel); border: 1px solid var(--line); border-top: 1px dashed var(--line); border-radius: 0 0 14px 14px; padding: 14px 16px 16px; }
 .write-row { display: flex; gap: 10px; align-items: center; }
 .write input { flex: 1; font-family: Georgia, "Iowan Old Style", serif; font-size: 15px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 11px 13px; color: var(--text); }
@@ -737,16 +787,42 @@ function addEntry(role, text, meta) {
   return entry;
 }
 
+var EXPECTED_ANSWER_SECONDS = $VPS_EXPECTED_ANSWER_SECONDS;
+var typingCountdownTimer = null;
+
+function formatCountdown(totalSeconds) {
+  var m = Math.floor(totalSeconds / 60);
+  var s = totalSeconds % 60;
+  return m + ":" + String(s).padStart(2, "0");
+}
+
 function showTyping() {
   var t = document.createElement("div");
   t.className = "typing";
   t.id = "typing-indicator";
-  t.innerHTML = "<span></span><span></span><span></span>";
+  t.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+    '<span class="typing-label">капитан обдумывает ответ &middot; ' +
+    '<span class="num" id="typing-countdown">' + formatCountdown(EXPECTED_ANSWER_SECONDS) + "</span></span>";
   pages.appendChild(t);
   pages.scrollTop = pages.scrollHeight;
+
+  var remaining = EXPECTED_ANSWER_SECONDS;
+  typingCountdownTimer = setInterval(function () {
+    remaining = Math.max(0, remaining - 1);
+    var el = document.getElementById("typing-countdown");
+    if (el) el.textContent = remaining > 0 ? formatCountdown(remaining) : "вот-вот...";
+    if (remaining <= 0) {
+      clearInterval(typingCountdownTimer);
+      typingCountdownTimer = null;
+    }
+  }, 1000);
 }
 
 function hideTyping() {
+  if (typingCountdownTimer) {
+    clearInterval(typingCountdownTimer);
+    typingCountdownTimer = null;
+  }
   var t = document.getElementById("typing-indicator");
   if (t) t.remove();
 }
@@ -1253,6 +1329,7 @@ private fun answerWithRag(question: String, history: List<ChatTurn>, cfg: VpsGen
         append(VPS_ANSWER_SYSTEM_BASE)
         if (bookRelated) append("\n\n").append(VPS_BOOK_TEASER_RULE)
         if (isRiggingRelatedQuestion(question)) append("\n\n").append(VPS_RIGGING_ANCHOR_RULE)
+        if (isSharkRelatedQuestion(question)) append("\n\n").append(VPS_SHARK_ENTITY_ANCHOR_RULE)
     }
 
     val gen = generateGuarded(
@@ -1486,6 +1563,41 @@ fun main(args: Array<String>) {
 }
 
 /**
+ * Число попыток дождаться готовности Ollama при старте сервиса и пауза между ними —
+ * см. [waitForOllamaServer]. Суммарно ждём до `(VPS_OLLAMA_STARTUP_RETRIES - 1) *
+ * VPS_OLLAMA_STARTUP_RETRY_DELAY_MS` ≈ 55с — этого достаточно, чтобы пережить типичную
+ * задержку запуска Ollama после перезагрузки VPS, но не блокирует сервис навечно, если
+ * Ollama реально не поднялась (тогда всё ещё сработает `Restart=always` из systemd).
+ */
+private const val VPS_OLLAMA_STARTUP_RETRIES = 12
+
+/** Пауза между попытками в [waitForOllamaServer] — см. комментарий у [VPS_OLLAMA_STARTUP_RETRIES]. */
+private const val VPS_OLLAMA_STARTUP_RETRY_DELAY_MS = 5_000L
+
+/**
+ * Дожидается готовности локальной Ollama при старте сервиса вместо одной проверки и
+ * немедленного отказа.
+ *
+ * После перезагрузки VPS systemd поднимает `captainblood.service` и `ollama.service`
+ * в порядке, заданном `After=`/`Wants=` (см. `deploy/captainblood.service`), но эта
+ * зависимость гарантирует только то, что процесс Ollama НАЧАЛ стартовать — не то, что
+ * её HTTP-сервер уже слушает порт 11434. Единственная проверка без ретрая приводила к
+ * тому, что сервис сразу завершался и полагался на грубый цикл `Restart=always` +
+ * `RestartSec=5` в systemd (целый передёрг JVM на каждую попытку), что излишне затягивало
+ * время до готовности сервиса — и тем самым увеличивало число реальных вопросов
+ * пользователя, попадающих в окно "модель ещё не в памяти" (см. [VPS_WARMING_ANSWERS]).
+ *
+ * @return true, если Ollama ответила на `/api/tags` в течение отведённых попыток
+ */
+private fun waitForOllamaServer(): Boolean {
+    repeat(VPS_OLLAMA_STARTUP_RETRIES) { attempt ->
+        if (OllamaClient.isServerRunning()) return true
+        if (attempt < VPS_OLLAMA_STARTUP_RETRIES - 1) Thread.sleep(VPS_OLLAMA_STARTUP_RETRY_DELAY_MS)
+    }
+    return false
+}
+
+/**
  * Режим `[1]` — поднимает HTTP-сервис.
  *
  * @param blockOnEnter true (по умолчанию, интерактивный запуск) — держит сервис открытым до
@@ -1503,8 +1615,11 @@ private fun runServerMode(config: Properties?, blockOnEnter: Boolean = true) {
         )
         return
     }
-    if (!OllamaClient.isServerRunning()) {
-        println("Сервер Ollama не отвечает на localhost:11434. Запустите: ollama serve")
+    if (!waitForOllamaServer()) {
+        println(
+            "Сервер Ollama не отвечает на localhost:11434 после $VPS_OLLAMA_STARTUP_RETRIES попыток " +
+                "(с паузой ${VPS_OLLAMA_STARTUP_RETRY_DELAY_MS / 1000}с) - запустите: ollama serve"
+        )
         return
     }
 

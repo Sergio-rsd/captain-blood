@@ -3,7 +3,8 @@
 Файл правил проекта — стек, архитектура, конвенции, паттерны и антипаттерны,
 которым должен следовать любой код (человека или ассистента), добавляемый в
 этот репозиторий. Проанализирован по реальному коду проекта на момент написания
-(2026-07-20, ветка `feature/control-restart`).
+(2026-07-20, ветка `feature/control-restart`; актуализирован 2026-07-22,
+ветка `feature/profiles-day2`).
 
 ## О проекте
 
@@ -11,7 +12,7 @@
 детей 12+, развёрнутый на VPS. Второй компонент — watchdog с LLM-диагностикой,
 который при сбое `/health` сам ставит диагноз и чинит сервис, а не просто
 перезапускает его по таймеру. Подробности задачи — `README.md`, деплой —
-`docs/VPS_Deploy_CaptainBlood.md`.
+`docs/VPS_Deploy_CaptainBlood.md`, выбор модели ответа — `docs/ModelComparison.md`.
 
 ## Стек
 
@@ -35,7 +36,9 @@
 ```
 captainblood.Main
   ├── --server (systemd) ИЛИ интерактивное меню [1]/[2]/[3]
-  ├── [1] runServerMode() → PrivateLlmServer (HTTP: /chat, /health, GET / — HTML-морда)
+  ├── [1] runServerMode() → waitForOllamaServer() (до ~55с ретраев — переживает
+  │         гонку старта captainblood.service/ollama.service после ребута VPS)
+  │         → PrivateLlmServer (HTTP: /chat, /health, GET / — HTML-морда)
   │         → RAG: DocumentIndex.searchHybrid() (BM25+косинус) + keyword-gate
   │           поверх тематических файлов → OllamaClient (генерация ответа)
   └── [2] runClientMode() → REPL с `!command`-диспетчером:
@@ -70,7 +73,8 @@ src/main/kotlin/
   client/                  — LlmClient (мультипровайдерный облачный HTTP-клиент)
   core/                    — Config/ConfigKeys/InputUtils/OutputWidth (общая инфраструктура)
 deploy/                    — systemd unit-файлы (.service/.timer) + logrotate
-docs/                      — деплой-документация (VPS_Deploy_CaptainBlood.md)
+docs/                      — деплой (VPS_Deploy_CaptainBlood.md), сравнение
+                             LLM-моделей (ModelComparison.md)
 corpus/                    — сырые файлы для индексации (перед !index-doc)
 ```
 
@@ -127,6 +131,20 @@ corpus/                    — сырые файлы для индексации
 7. **Best-effort побочный эффект — с комментарием, почему пустой catch ок** —
    `WatchdogMain.kt: logLine()`, `catch (_: Exception) { /* логирование в файл
    best-effort - отсутствие прав на запись не должно ронять watchdog */ }`.
+8. **Ретрай с паузой вместо разовой проверки внешней зависимости на старте** —
+   `Main.kt: waitForOllamaServer()`. Systemd `After=`/`Wants=` гарантирует
+   только порядок запуска юнитов, не готовность порта зависимого сервиса —
+   разовая проверка сразу после старта ловит гонку (Ollama ещё форкается, порт
+   11434 не слушается) и полагается на грубый `Restart=always` вместо честного
+   ожидания в разумных пределах (см. `VPS_OLLAMA_STARTUP_RETRIES`/
+   `VPS_OLLAMA_STARTUP_RETRY_DELAY_MS`).
+9. **Промпт-анкор для анти-конфляции нескольких сущностей в одном контексте** —
+   `VPS_SHARK_ENTITY_ANCHOR_RULE` (`Main.kt`). В отличие от keyword-gate
+   (пункт 2, чинит RETRIEVAL — чтобы нужный чанк вообще попал в контекст), это
+   правило чинит SYNTHESIS: retrieval уже нашёл нужные чанки, но модель путает,
+   к какой из нескольких похожих сущностей в контексте (например, разных видов
+   акул) относится конкретный факт. Добавляется в системный промпт условно,
+   через ту же схему `is*RelatedQuestion`, что и остальные тематические правила.
 
 ## Хороший код — примеры
 
