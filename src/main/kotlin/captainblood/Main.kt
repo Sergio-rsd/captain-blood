@@ -933,7 +933,7 @@ private data class ChatHttpResult(val code: Int, val body: String, val elapsedMs
  * @param maxRequests максимум запросов в окне [windowMs] на один IP
  * @param windowMs    размер скользящего окна в миллисекундах
  */
-private class RateLimiter(
+internal class RateLimiter(
     private val maxRequests: Int = VPS_RATE_LIMIT_MAX,
     private val windowMs: Long = VPS_RATE_LIMIT_WINDOW_MS
 ) {

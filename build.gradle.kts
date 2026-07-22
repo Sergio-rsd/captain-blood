@@ -20,10 +20,22 @@ dependencies {
     implementation("org.apache.poi:poi:5.3.0")
     implementation("org.apache.poi:poi-ooxml:5.3.0")
     implementation("org.apache.poi:poi-scratchpad:5.3.0")
+
+    // Unit/integration-тесты (Advanced-курс, День 3 — Уровень 1)
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 kotlin {
     jvmToolchain(21)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
 }
 
 application {
